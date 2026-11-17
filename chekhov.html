@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Чехов — крути!</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: radial-gradient(circle at 50% 30%, #2b2b3d, #0d0d14 70%);
+    overflow: hidden;
+    font-family: 'Georgia', serif;
+    color: #f0e6d2;
+  }
+  #info {
+    position: absolute;
+    top: 20px;
+    width: 100%;
+    text-align: center;
+    z-index: 10;
+    pointer-events: none;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+  }
+  #info h1 { font-size: 1.8rem; letter-spacing: 2px; }
+  #info p { font-size: 0.9rem; opacity: 0.7; margin-top: 6px; }
+  #hint {
+    position: absolute;
+    bottom: 20px;
+    width: 100%;
+    text-align: center;
+    font-size: 0.85rem;
+    opacity: 0.5;
+    z-index: 10;
+    pointer-events: none;
+  }
+  #loading {
+    position: absolute;
+    top: 50%;
+    width: 100%;
+    text-align: center;
+    font-size: 1rem;
+    opacity: 0.8;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+<div id="info">
+  <h1>А. П. Чехов</h1>
+  <p>1860 — 1904</p>
+</div>
+<div id="hint">Крути мышкой / пальцем 🖱️👆</div>
+<div id="loading">Загрузка модели…</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// --- Сцена ---
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0d0d14, 12, 30);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(0, 2.2, 7);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// --- Управление вращением ---
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 2, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enableZoom = false;
+controls.minPolarAngle = Math.PI / 3;
+controls.maxPolarAngle = Math.PI / 1.8;
+
+// --- Свет ---
+const keyLight = new THREE.DirectionalLight(0xfff2d6, 2.5);
+keyLight.position.set(4, 8, 6);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+scene.add(keyLight);
+
+const rimLight = new THREE.DirectionalLight(0x88aaff, 1.2);
+rimLight.position.set(-5, 4, -6);
+scene.add(rimLight);
+
+const fillLight = new THREE.PointLight(0xffcc88, 0.6, 20);
+fillLight.position.set(0, 0.5, 5);
+scene.add(fillLight);
+
+scene.add(new THREE.AmbientLight(0x404060, 1.2));
+
+// --- Пьедестал ---
+const pedestalMat = new THREE.MeshStandardMaterial({
+  color: 0x1a1a22, roughness: 0.35, metalness: 0.6
+});
+const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.9, 0.5, 48), pedestalMat);
+pedestal.position.y = 0.25;
+pedestal.castShadow = true;
+pedestal.receiveShadow = true;
+scene.add(pedestal);
+
+const baseRing = new THREE.Mesh(
+  new THREE.TorusGeometry(1.75, 0.04, 16, 64),
+  new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.25, metalness: 1 })
+);
+baseRing.rotation.x = Math.PI / 2;
+baseRing.position.y = 0.5;
+scene.add(baseRing);
+
+// --- Загрузка настоящей модели Чехова ---
+const chekhov = new THREE.Group();
+chekhov.position.y = 0.5;
+scene.add(chekhov);
+
+const loader = new GLTFLoader();
+loader.load('chekhov.glb', (gltf) => {
+  const model = gltf.scene;
+
+  // --- Автоматическая подгонка размера и позиции ---
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+
+  // Масштабируем так, чтобы высота модели была ~3 единицы
+  const desiredHeight = 3;
+  const scale = desiredHeight / size.y;
+  model.scale.setScalar(scale);
+
+  // Центрируем по X/Z и ставим на пьедестал по Y
+  model.position.x = -center.x * scale;
+  model.position.z = -center.z * scale;
+  model.position.y = -box.min.y * scale;
+
+  model.traverse((node) => {
+    if (node.isMesh) {
+      node.castShadow = true;
+      node.receiveShadow = true;
+    }
+  });
+
+  chekhov.add(model);
+  document.getElementById('loading').style.display = 'none';
+}, undefined, (error) => {
+  console.error('Ошибка загрузки модели:', error);
+  document.getElementById('loading').textContent = 'Не удалось загрузить chekhov.glb — проверьте, что файл лежит рядом с HTML';
+});
+
+// --- Частицы/пылинки в воздухе для атмосферы ---
+const particleGeo = new THREE.BufferGeometry();
+const particleCount = 200;
+const positions = new Float32Array(particleCount * 3);
+for (let i = 0; i < particleCount * 3; i++) {
+  positions[i] = (Math.random() - 0.5) * 30;
+}
+particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+const particles = new THREE.Points(particleGeo, new THREE.PointsMaterial({
+  color: 0xffddaa, size: 0.04, transparent: true, opacity: 0.6
+}));
+scene.add(particles);
+
+// --- Анимация ---
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  // Лёгкое покачивание — «дыхание»
+  chekhov.rotation.y = Math.sin(t * 0.3) * 0.15;
+  chekhov.position.y = 0.5 + Math.sin(t * 1.2) * 0.02;
+
+  particles.rotation.y = t * 0.02;
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// --- Ресайз ---
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
